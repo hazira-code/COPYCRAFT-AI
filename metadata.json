@@ -1,0 +1,8 @@
+{
+  "name": "CopyCraft AI",
+  "description": "An AI-powered content copywriter and tone transformer with A/B testing, scoring engines, Campaign Studio, SEO generator, and a complete downloadable GitHub Streamlit codebase.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
