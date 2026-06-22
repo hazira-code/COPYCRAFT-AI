@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "motion/react";
 import {
   Sparkles,
@@ -49,7 +49,9 @@ import {
   Eye,
   CheckCircle2,
   XCircle,
-  LayoutGrid
+  LayoutGrid,
+  MessageSquare,
+  Brain
 } from "lucide-react";
 import {
   PlatformType,
@@ -113,6 +115,43 @@ export default function App() {
   const [copilotHistory, setCopilotHistory] = useState<{ instruction: string; explanation: string; timestamp: string }[]>([
     { instruction: "System Initialization", explanation: "Linguistic feedback loops ready.", timestamp: "11:10 AM" }
   ]);
+
+  // --- Enhanced Chatbot and Thinking Mode states ---
+  const [enableThinking, setEnableThinking] = useState(false);
+  const [rightPanelTab, setRightPanelTab] = useState<"copilot" | "chatbot">("chatbot");
+  const [chatbotRole, setChatbotRole] = useState("Linguistic Architect");
+  const [chatbotModel, setChatbotModel] = useState("gemini-3.5-flash");
+  const [chatInput, setChatInput] = useState("");
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatMessages, setChatMessages] = useState<{
+    id: string;
+    role: "user" | "assistant";
+    text: string;
+    timestamp: string;
+    model: string;
+  }[]>([
+    {
+      id: "wel_1",
+      role: "assistant",
+      text: "Hello! I am your CopyCraft Marketing Strategist chatbot. Select a specialized AI role or model above, and let's structure your copy, compile campaigns, or troubleshoot conversion blockages!",
+      timestamp: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+      model: "gemini-3.5-flash"
+    }
+  ]);
+  const chatEndRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [chatMessages]);
+
+  const CHATBOT_ROLES = {
+    "Linguistic Architect": "You are CopyCraft AI, an elite copywriting assistant and conversion strategist. Speak clearly and objectively, providing crisp suggestions.",
+    "Conversion Strategist": "You are a direct-response copywriter trained in cognitive bias and behavioral economics. You specialize in crafting high-urgency CTAs, AIDA formulas, and landing page hook models.",
+    "Creative Director": "You are a brand director focused on emotional storytelling, narrative structure, and memorable taglines. You balance elite aesthetics with commercial outcomes.",
+    "SEO Auditor": "You are an expert SEO architect. You optimize titles, meta descriptions, and keyword structures for SERP visibility and CTR scaling."
+  };
 
   // --- UI feedback states ---
   const [githubSelectedFile, setGithubSelectedFile] = useState("app.py");
@@ -368,7 +407,8 @@ This is where the FitTrack Bio-Band changes the equation. It tracks physiologica
           ragContext,
           temperature,
           topP,
-          maxTokens
+          maxTokens,
+          enableThinking
         })
       });
       const data = await res.json();
@@ -446,7 +486,8 @@ This is where the FitTrack Bio-Band changes the equation. It tracks physiologica
           targetMarket,
           tone,
           brandVoiceProfile: voiceProfile,
-          temperature
+          temperature,
+          enableThinking
         })
       });
       const data = await res.json();
@@ -535,6 +576,70 @@ This is where the FitTrack Bio-Band changes the equation. It tracks physiologica
       showStatus("error", "AI Copilot connection stalled.");
     } finally {
       setCopilotLoading(false);
+    }
+  };
+
+  // 💬 6. Multi-Turn Gemini Chatbot Message Handler
+  const handleSendChatMessage = async () => {
+    if (!chatInput.trim() || chatLoading) return;
+
+    const userText = chatInput.trim();
+    setChatInput("");
+
+    const userMessage = {
+      id: `chat_${Date.now()}`,
+      role: "user" as const,
+      text: userText,
+      timestamp: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+      model: chatbotModel
+    };
+
+    const currentHistory = [...chatMessages, userMessage];
+    setChatMessages(currentHistory);
+    setChatLoading(true);
+
+    try {
+      const selectedSystemInstruction = CHATBOT_ROLES[chatbotRole as keyof typeof CHATBOT_ROLES] || CHATBOT_ROLES["Linguistic Architect"];
+      
+      const payloadHistory = currentHistory.slice(0, -1).map((msg) => ({
+        role: msg.role === "assistant" ? "model" : msg.role,
+        parts: [{ text: msg.text }]
+      }));
+
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          message: userText,
+          history: payloadHistory,
+          model: chatbotModel,
+          systemInstruction: selectedSystemInstruction,
+          enableThinking: enableThinking || chatbotModel === "gemini-3.1-pro-preview"
+        })
+      });
+
+      const data = await response.json();
+
+      const assistantMessage = {
+        id: `chat_${Date.now() + 1}`,
+        role: "assistant" as const,
+        text: data.text || "No response received.",
+        timestamp: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+        model: chatbotModel
+      };
+
+      setChatMessages((prev) => [...prev, assistantMessage]);
+    } catch (error: any) {
+      const errorMessage = {
+        id: `chat_err_${Date.now()}`,
+        role: "assistant" as const,
+        text: `Unable to route message. Reason: ${error.message}`,
+        timestamp: new Date().toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" }),
+        model: chatbotModel
+      };
+      setChatMessages((prev) => [...prev, errorMessage]);
+    } finally {
+      setChatLoading(false);
     }
   };
 
@@ -983,6 +1088,38 @@ VARIABLES:
                   onChange={(e) => setTopP(parseFloat(e.target.value))}
                   className="w-full accent-blue-500"
                 />
+              </div>
+            </div>
+
+            {/* Deep Thinking Mode (High Reasoning Mode) */}
+            <div className={`p-3.5 rounded-2xl border transition-all ${
+              enableThinking 
+                ? "bg-indigo-500/10 border-indigo-500/40 ring-1 ring-indigo-500/20" 
+                : theme === "dark" 
+                  ? "bg-slate-900/40 border-slate-850" 
+                  : "bg-slate-50 border-slate-200"
+            }`}>
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-start gap-2">
+                  <Brain className={`w-4 h-4 mt-0.5 shrink-0 ${enableThinking ? "text-indigo-400 animate-pulse" : "text-slate-500"}`} />
+                  <div>
+                    <span className="text-[11px] font-bold text-slate-200 flex items-center gap-1 font-display">
+                      Deep Thinking Mode
+                    </span>
+                    <p className="text-[9.5px] text-slate-400 leading-tight mt-0.5">
+                      Enables high reasoning budget and switches model to elite gemini-3.1-pro-preview.
+                    </p>
+                  </div>
+                </div>
+                <label className="relative inline-flex items-center cursor-pointer shrink-0">
+                  <input
+                    type="checkbox"
+                    checked={enableThinking}
+                    onChange={(e) => setEnableThinking(e.target.checked)}
+                    className="sr-only peer"
+                  />
+                  <div className="w-8 h-4.5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-3.5 after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-3.5 after:w-3.5 after:transition-all peer-checked:bg-indigo-500 relative"></div>
+                </label>
               </div>
             </div>
 
@@ -1987,92 +2124,225 @@ VARIABLES:
             </div>
 
             {copilotOpen ? (
-              <div className="p-4 space-y-4 flex-1 flex flex-col justify-between overflow-y-auto">
+              <div className="p-4 space-y-4 flex-1 flex flex-col justify-between overflow-hidden">
                 
-                <div className="space-y-4">
-                  {/* Copilot Header */}
-                  <div className="flex items-center justify-between pb-2 border-b border-slate-800/40">
-                    <span className="text-xs font-bold text-indigo-400 flex items-center gap-1.5 font-display uppercase tracking-wider">
-                      <Sparkles className="w-4 h-4 animate-bounce" /> AI Copilot Assistant
-                    </span>
-                    <span className="text-[9px] font-mono bg-indigo-500/10 text-indigo-400 rounded px-1">
-                      Online
-                    </span>
+                {/* Tab Selector Header */}
+                <div className="flex items-center justify-between pb-2 border-b border-slate-800/40 gap-1 shrink-0">
+                  <div className="flex gap-1.5">
+                    <button
+                      onClick={() => setRightPanelTab("chatbot")}
+                      className={`text-[11px] font-bold py-1 px-2.5 rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
+                        rightPanelTab === "chatbot"
+                          ? "bg-indigo-500/15 text-indigo-400 font-bold border border-indigo-500/30 font-display"
+                          : "text-slate-400 hover:text-slate-205 border border-transparent font-display"
+                      }`}
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" /> Chatbot
+                    </button>
+                    <button
+                      onClick={() => setRightPanelTab("copilot")}
+                      className={`text-[11px] font-bold py-1 px-2.5 rounded-lg transition-all flex items-center gap-1 cursor-pointer ${
+                        rightPanelTab === "copilot"
+                          ? "bg-indigo-500/15 text-indigo-400 font-bold border border-indigo-500/30 font-display"
+                          : "text-slate-400 hover:text-slate-205 border border-transparent font-display"
+                      }`}
+                    >
+                      <Sparkles className="w-3.5 h-3.5" /> Copilot
+                    </button>
                   </div>
+                  <span className="text-[9px] font-mono bg-emerald-500/10 text-emerald-400 rounded px-1.5 py-0.5 flex items-center gap-1">
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span> Live Node
+                  </span>
+                </div>
 
-                  <p className="text-[10.5px] text-slate-400 leading-normal">
-                    Enter any styling instruction to dynamically refine, shorten, or translate the active generated copy immediately.
-                  </p>
-
-                  {/* Preset prompt capsules */}
-                  <div className="space-y-1.5">
-                    <span className="text-[9px] font-mono text-slate-500 block uppercase font-bold">PRESET QUICK STYLES</span>
-                    <div className="flex flex-col gap-1 text-[10px]">
-                      {copilotPresets.map((preset, i) => (
-                        <button
-                          key={i}
-                          onClick={() => handleCopilotAction(preset.text)}
-                          disabled={copilotLoading}
-                          className={`p-1.5 px-2.5 rounded-lg text-left truncate border transition-all cursor-pointer ${
-                            theme === "dark" 
-                              ? "bg-slate-950/70 border-slate-850 hover:border-slate-800 text-slate-300 hover:bg-slate-900" 
-                              : "bg-slate-50 border-slate-150 hover:bg-slate-100 text-slate-750"
+                {rightPanelTab === "chatbot" ? (
+                  // ==========================================
+                  // 💬 DYNAMIC CHATBOT INTERFACE (Multi-turn)
+                  // ==========================================
+                  <div className="flex-1 flex flex-col justify-between overflow-hidden space-y-3">
+                    
+                    {/* Chatbot Configuration Selectors */}
+                    <div className="space-y-2 border-b border-slate-800/20 pb-3 shrink-0">
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[9px] font-mono text-slate-500 uppercase font-bold">Chatbot Specialist Role</span>
+                        <select
+                          value={chatbotRole}
+                          onChange={(e) => setChatbotRole(e.target.value)}
+                          className={`w-full border rounded-lg p-1.5 text-[10.5px] cursor-pointer focus:outline-none ${
+                            theme === "dark" ? "bg-slate-950 border-slate-850 text-slate-100 font-bold" : "bg-white border-slate-200 text-slate-800 font-bold"
                           }`}
                         >
-                          {preset.label}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Custom Prompt Box */}
-                  <div className="space-y-1.5">
-                    <span className="text-[9px] font-mono text-slate-500 block uppercase font-bold">CUSTOM CORRECTION QUERY</span>
-                    <div className="relative">
-                      <textarea
-                        rows={2.5}
-                        value={copilotInput}
-                        onChange={(e) => setCopilotInput(e.target.value)}
-                        placeholder="e.g. Translate to French and add 3 emojis..."
-                        className={`w-full text-[11px] rounded-xl p-2.5 pr-8 border resize-none focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
-                          theme === "dark" ? "bg-slate-950 border-slate-850 text-slate-200 placeholder-slate-600" : "bg-white border-slate-205 text-slate-800 placeholder-slate-400"
-                        }`}
-                      />
-                      <button
-                        onClick={() => handleCopilotAction()}
-                        disabled={copilotLoading || !copilotInput.trim()}
-                        className="absolute bottom-2.5 right-2 text-indigo-500 hover:text-indigo-400 disabled:opacity-30 cursor-pointer"
-                      >
-                        <Send className="w-3.5 h-3.5" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Copilot Logging history */}
-                <div className="mt-4 pt-3 border-t border-dashed border-slate-800/40 text-[10px] space-y-2 max-h-48 overflow-y-auto">
-                  <span className="text-[8.5px] uppercase font-mono text-slate-500 block font-bold">COGNITIVE ADJUSTMENTS LOG</span>
-                  <div className="space-y-2">
-                    {copilotHistory.map((log, idx) => (
-                      <div key={idx} className={`p-2 rounded border font-mono text-[9px] leading-relaxed ${
-                        theme === "dark" ? "bg-slate-950/80 border-slate-850" : "bg-slate-50 border-slate-150"
-                      }`}>
-                        <div className="flex justify-between font-bold text-indigo-400">
-                          <span className="truncate">"{log.instruction.slice(0, 25)}..."</span>
-                          <span className="text-slate-600 text-[8px]">{log.timestamp}</span>
-                        </div>
-                        <p className={`text-[9.5px] mt-0.5 ${theme === "dark" ? "text-slate-450" : "text-slate-500"}`}>{log.explanation}</p>
+                          {Object.keys(CHATBOT_ROLES).map((role) => (
+                            <option key={role} value={role}>🎯 {role}</option>
+                          ))}
+                        </select>
                       </div>
-                    ))}
+
+                      <div className="flex flex-col gap-1">
+                        <span className="text-[9px] font-mono text-slate-500 uppercase font-bold">Inference Intelligence Node</span>
+                        <select
+                          value={chatbotModel}
+                          onChange={(e) => setChatbotModel(e.target.value)}
+                          className={`w-full border rounded-lg p-1.5 text-[10.5px] cursor-pointer focus:outline-none ${
+                            theme === "dark" ? "bg-slate-950 border-slate-850 text-slate-100 font-mono" : "bg-white border-slate-200 text-slate-800 font-mono"
+                          }`}
+                        >
+                          <option value="gemini-3.5-flash">🏎️ gemini-3.5-flash (General speed)</option>
+                          <option value="gemini-3.1-pro-preview">🧠 gemini-3.1-pro-preview (Complex task)</option>
+                          <option value="gemini-3.1-flash-lite">⚡ gemini-3.1-flash-lite (Very fast)</option>
+                        </select>
+                      </div>
+                    </div>
+
+                    {/* Chat Messages scroll hub */}
+                    <div className="flex-1 overflow-y-auto space-y-2.5 pr-1 py-1 max-h-[350px] flex flex-col">
+                      {chatMessages.map((msg) => (
+                        <div
+                          key={msg.id}
+                          className={`p-2.5 rounded-xl border text-[10.5px] leading-relaxed transition-all max-w-[90%] ${
+                            msg.role === "user"
+                              ? theme === "dark"
+                                ? "bg-indigo-500/10 border-indigo-500/25 text-slate-100 self-end ml-auto"
+                                : "bg-indigo-50 border-indigo-100 text-slate-800 self-end ml-auto"
+                              : theme === "dark"
+                                ? "bg-slate-950/70 border-slate-850 text-slate-300 mr-auto"
+                                : "bg-slate-50 border-slate-150 text-slate-700 mr-auto"
+                          }`}
+                        >
+                          <div className="flex justify-between items-center mb-1 text-[8.5px] font-mono text-slate-500 uppercase font-bold gap-3">
+                            <span>{msg.role === "user" ? "You" : chatbotRole}</span>
+                            <span className="text-[7.5px] opacity-80">{msg.timestamp}</span>
+                          </div>
+                          <p className="whitespace-pre-line text-[10.5px] leading-relaxed">{msg.text}</p>
+                          {msg.role === "assistant" && msg.model && (
+                            <span className="text-[7px] font-mono opacity-40 block mt-1.5 uppercase text-right">
+                              {msg.model}
+                            </span>
+                          )}
+                        </div>
+                      ))}
+                      {chatLoading && (
+                        <div className={`p-2.5 rounded-xl border text-[10.5px] mr-auto max-w-[90%] animate-pulse ${
+                          theme === "dark" ? "bg-slate-950/70 border-slate-850 text-slate-400" : "bg-slate-50 border-slate-150 text-slate-500"
+                        }`}>
+                          <div className="flex items-center gap-1.5 font-mono text-[8.5px] font-bold text-indigo-400 uppercase">
+                            <Brain className="w-3.5 h-3.5 animate-spin" /> {chatbotModel === "gemini-3.1-pro-preview" || enableThinking ? "Deep Thinking..." : "Reasoning..."}
+                          </div>
+                          <p className="mt-1 text-[10px] leading-relaxed font-mono">Synthesizing copywriting guidelines...</p>
+                        </div>
+                      )}
+                      <div ref={chatEndRef} />
+                    </div>
+
+                    {/* Chat Prompt box */}
+                    <div className="pt-2 border-t border-slate-800/10 shrink-0">
+                      <div className="relative">
+                        <input
+                          type="text"
+                          value={chatInput}
+                          onChange={(e) => setChatInput(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") handleSendChatMessage();
+                          }}
+                          placeholder="Ask the strategist chatbot..."
+                          className={`w-full text-[11px] rounded-xl py-2 pl-3 pr-8 border focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                            theme === "dark" ? "bg-slate-950 border-slate-850 text-slate-200 placeholder-slate-600" : "bg-white border-slate-200 text-slate-800 placeholder-slate-400"
+                          }`}
+                        />
+                        <button
+                          onClick={handleSendChatMessage}
+                          disabled={chatLoading || !chatInput.trim()}
+                          className="absolute top-1/2 -translate-y-1/2 right-2 text-indigo-500 hover:text-indigo-400 disabled:opacity-30 cursor-pointer"
+                        >
+                          <Send className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+
                   </div>
-                </div>
+                ) : (
+                  // ==========================================
+                  // 🤖 ORIGINAL COPILOT INTERFACE (Inline Adjuster)
+                  // ==========================================
+                  <div className="space-y-4 flex-1 flex flex-col justify-between overflow-y-auto">
+                    
+                    <div className="space-y-4">
+                      <p className="text-[10.5px] text-slate-400 leading-normal">
+                        Enter any styling instruction to dynamically refine, shorten, or translate the active generated copy immediately.
+                      </p>
+
+                      {/* Preset prompt capsules */}
+                      <div className="space-y-1.5">
+                        <span className="text-[9px] font-mono text-slate-500 block uppercase font-bold">PRESET QUICK STYLES</span>
+                        <div className="flex flex-col gap-1 text-[10px]">
+                          {copilotPresets.map((preset, i) => (
+                            <button
+                              key={i}
+                              onClick={() => handleCopilotAction(preset.text)}
+                              disabled={copilotLoading}
+                              className={`p-1.5 px-2.5 rounded-lg text-left truncate border transition-all cursor-pointer ${
+                                theme === "dark" 
+                                  ? "bg-slate-950/70 border-slate-850 hover:border-slate-800 text-slate-300 hover:bg-slate-900" 
+                                  : "bg-slate-50 border-slate-150 hover:bg-slate-100 text-slate-750"
+                              }`}
+                            >
+                              {preset.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Custom Prompt Box */}
+                      <div className="space-y-1.5">
+                        <span className="text-[9px] font-mono text-slate-500 block uppercase font-bold">CUSTOM CORRECTION QUERY</span>
+                        <div className="relative">
+                          <textarea
+                            rows={2.5}
+                            value={copilotInput}
+                            onChange={(e) => setCopilotInput(e.target.value)}
+                            placeholder="e.g. Translate to French and add 3 emojis..."
+                            className={`w-full text-[11px] rounded-xl p-2.5 pr-8 border resize-none focus:outline-none focus:ring-1 focus:ring-indigo-500 ${
+                              theme === "dark" ? "bg-slate-950 border-slate-850 text-slate-200 placeholder-slate-600" : "bg-white border-slate-255 text-slate-800 placeholder-slate-400"
+                            }`}
+                          />
+                          <button
+                            onClick={() => handleCopilotAction()}
+                            disabled={copilotLoading || !copilotInput.trim()}
+                            className="absolute bottom-2.5 right-2 text-indigo-500 hover:text-indigo-400 disabled:opacity-30 cursor-pointer"
+                          >
+                            <Send className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Copilot Logging history */}
+                    <div className="mt-4 pt-3 border-t border-dashed border-slate-800/40 text-[10px] space-y-2 max-h-48 overflow-y-auto">
+                      <span className="text-[8.5px] uppercase font-mono text-slate-500 block font-bold">COGNITIVE ADJUSTMENTS LOG</span>
+                      <div className="space-y-2">
+                        {copilotHistory.map((log, idx) => (
+                          <div key={idx} className={`p-2 rounded border font-mono text-[9px] leading-relaxed ${
+                            theme === "dark" ? "bg-slate-950/80 border-slate-850" : "bg-slate-50 border-slate-150"
+                          }`}>
+                            <div className="flex justify-between font-bold text-indigo-400">
+                              <span className="truncate">"{log.instruction.slice(0, 25)}..."</span>
+                              <span className="text-slate-600 text-[8px]">{log.timestamp}</span>
+                            </div>
+                            <p className={`text-[9.5px] mt-0.5 ${theme === "dark" ? "text-slate-450" : "text-slate-500"}`}>{log.explanation}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                  </div>
+                )}
 
               </div>
             ) : (
               <div className="flex-1 flex flex-col items-center justify-center py-10 space-y-4">
                 <Sparkles className="w-4 h-4 text-indigo-500 animate-spin" />
                 <span className="text-[9px] font-mono text-slate-500 -rotate-90 origin-center whitespace-nowrap tracking-widest mt-4">
-                  COPILOT DRAWER
+                  AI PANEL DRAWER
                 </span>
               </div>
             )}

@@ -64,7 +64,8 @@ app.post("/api/generate", async (req: Request, res: Response) => {
     ragContext = "",
     temperature = 0.7,
     topP = 0.9,
-    maxTokens = 1024
+    maxTokens = 1024,
+    enableThinking = false
   } = req.body;
 
   if (!productName || !description) {
@@ -152,15 +153,25 @@ You MUST structure your content exactly matching this JSON format. Avoid markdow
   "improvements": ["string", "string"]
 }`;
 
+    const configPayObj: any = {
+      temperature: temperature,
+      topP: topP,
+      responseMimeType: "application/json"
+    };
+
+    let selectedModel = "gemini-3.5-flash";
+
+    if (enableThinking) {
+      selectedModel = "gemini-3.1-pro-preview";
+      configPayObj.thinkingConfig = { thinkingLevel: "HIGH" };
+    } else {
+      configPayObj.maxOutputTokens = maxTokens;
+    }
+
     const response = await aiClient.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: selectedModel,
       contents: userPrompt,
-      config: {
-        temperature: temperature,
-        topP: topP,
-        maxOutputTokens: maxTokens,
-        responseMimeType: "application/json"
-      }
+      config: configPayObj
     });
 
     const parsedData = JSON.parse(response.text?.trim() || "{}");
@@ -185,7 +196,8 @@ app.post("/api/generate-campaign", async (req: Request, res: Response) => {
     targetMarket,
     tone,
     brandVoiceProfile,
-    temperature = 0.8
+    temperature = 0.8,
+    enableThinking = false
   } = req.body;
 
   if (!productName || !description) {
@@ -243,13 +255,22 @@ Generate a creative rollout suite. You must output exactly matching this JSON la
   "hashtags": ["#tag1", "#tag2", "#tag3"]
 }`;
 
+    const configPayObj: any = {
+      temperature: temperature,
+      responseMimeType: "application/json"
+    };
+
+    let selectedModel = "gemini-3.5-flash";
+
+    if (enableThinking) {
+      selectedModel = "gemini-3.1-pro-preview";
+      configPayObj.thinkingConfig = { thinkingLevel: "HIGH" };
+    }
+
     const response = await aiClient.models.generateContent({
-      model: "gemini-3.5-flash",
+      model: selectedModel,
       contents: userPrompt,
-      config: {
-        temperature: temperature,
-        responseMimeType: "application/json"
-      }
+      config: configPayObj
     });
 
     const parsedData = JSON.parse(response.text?.trim() || "{}");
@@ -365,6 +386,66 @@ Return ONLY valid JSON (no markdown wrapper blocks):
     res.json({
       revisedCopy: `${currentCopy}\n\n⚠️ Applied: "${userInstruction}"`,
       explanation: `Gemini was busy: ${error.message}. Applied fallbacks.`
+    });
+  }
+});
+
+// 💬 5. Gemini Chatbot Endpoint
+app.post("/api/chat", async (req: Request, res: Response) => {
+  const {
+    message,
+    history = [],
+    model = "gemini-3.5-flash",
+    systemInstruction = "You are CopyCraft AI, an elite copywriting assistant and conversion strategist.",
+    enableThinking = false
+  } = req.body;
+
+  if (!message) {
+    res.status(400).json({ error: "Message is required." });
+    return;
+  }
+
+  if (!aiClient) {
+    console.log("Warning: API Key missing or client null. Executing fallback chat response.");
+    res.json({
+      text: `[DEMO MODE] This is a helpful simulated response to your message: "${message}". Connect your GEMINI_API_KEY in the Secrets panel to activate full multi-model live chat.`
+    });
+    return;
+  }
+
+  try {
+    let selectedModel = model;
+    const configPayObj: any = {
+      systemInstruction: systemInstruction,
+    };
+
+    if (enableThinking) {
+      selectedModel = "gemini-3.1-pro-preview";
+      configPayObj.thinkingConfig = { thinkingLevel: "HIGH" };
+    }
+
+    // Format chat history for @google/genai SDK
+    const contents = [
+      ...history.map((msg: any) => ({
+        role: msg.role === "assistant" ? "model" : msg.role,
+        parts: Array.isArray(msg.parts) ? msg.parts : [{ text: msg.text || msg.content || "" }]
+      })),
+      { role: "user", parts: [{ text: message }] }
+    ];
+
+    const response = await aiClient.models.generateContent({
+      model: selectedModel,
+      contents,
+      config: configPayObj
+    });
+
+    res.json({
+      text: response.text || ""
+    });
+  } catch (error: any) {
+    console.error("Gemini chatbot error:", error);
+    res.json({
+      text: `Failed to generate response: ${error.message}.`
     });
   }
 });
